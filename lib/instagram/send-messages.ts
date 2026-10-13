@@ -7,6 +7,38 @@ import {
 } from "@/lib/zernio/client";
 import type { InstagramContext, ZernioContext } from "./context";
 
+// ── Freno de envíos (2026-10-12): un fallo de Meta (code 1 «unknown error» en un DM que sí se entregó) hizo que el
+// barrido de comentarios reenviara el mismo DM cada 5 minutos a dos personas durante horas. Pase lo que pase aguas
+// arriba, ningún DM automático sale más de MAX veces por destinatario en la ventana: se bloquea y se registra.
+// Una respuesta privada por comentario la permite Meta una vez; 2 en 24 h deja margen. A una persona, 8 DMs por hora
+// cubren el flujo legítimo (apertura, follow gate, toques del botón).
+import { getRedisConnection } from "@/lib/queue/client";
+
+export class DmGuardBlockedError extends Error {}
+const FRENO = { comentario: { max: 2, ventana: 24 * 3600 }, persona: { max: 8, ventana: 3600 } };
+
+async function frenoEnvio(instagramAccountId: string, destino: { commentId?: string; userId?: string }) {
+  const tipo = destino.commentId ? "comentario" : "persona";
+  const id = destino.commentId ?? destino.userId;
+  if (!id) return;
+  const clave = `dmguard:${instagramAccountId}:${tipo}:${id}`;
+  let n = 0;
+  try {
+    const redis = getRedisConnection();
+    n = await redis.incr(clave);
+    if (n === 1) await redis.expire(clave, FRENO[tipo].ventana);
+  } catch (error) {
+    // Sin Redis no se puede contar: se deja pasar (el resto de guardas sigue activo) y se avisa en el log.
+    console.error("[DM Guard] Redis no disponible:", error instanceof Error ? error.message : error);
+    return;
+  }
+  if (n > FRENO[tipo].max) {
+    console.error(`[DM Guard] BLOQUEADO: ${n} envíos a ${tipo} ${id} (máx. ${FRENO[tipo].max})`);
+    throw new DmGuardBlockedError(`DM guard: ${tipo} ${id} superó ${FRENO[tipo].max} envíos en la ventana`);
+  }
+}
+
+
 type Button =
   | { type: "url"; title: string; url: string }
   | { type: "postback"; title: string; payload: string };
@@ -86,6 +118,7 @@ export async function sendPrivateReply({
   message: string;
   postId?: string;
 }) {
+  await frenoEnvio(instagramAccountId, { commentId });
   if (context.provider === "META")
     return meta.sendPrivateReply(
       context.accessToken,
@@ -113,6 +146,7 @@ export async function sendPrivateReplyWithButton({
   payload: string;
   postId?: string;
 }) {
+  await frenoEnvio(instagramAccountId, { commentId });
   if (context.provider === "META")
     return meta.sendPrivateReplyWithButton(
       context.accessToken,
@@ -146,6 +180,7 @@ export async function sendDirectMessageWithButton({
   buttonTitle: string;
   payload: string;
 }) {
+  await frenoEnvio(instagramAccountId, { userId });
   if (context.provider === "META")
     return meta.sendDirectMessageWithButton(
       context.accessToken,
@@ -178,6 +213,7 @@ export async function sendPrivateReplyWithLinkButton({
   buttons: meta.LinkButton[];
   postId?: string;
 }) {
+  await frenoEnvio(instagramAccountId, { commentId });
   if (context.provider === "META")
     return meta.sendPrivateReplyWithLinkButton(
       context.accessToken,
@@ -206,6 +242,7 @@ export async function sendDirectMessage({
   userId: string;
   message: string;
 }) {
+  await frenoEnvio(instagramAccountId, { userId });
   if (context.provider === "META")
     return meta.sendDirectMessage(
       context.accessToken,
@@ -229,6 +266,7 @@ export async function sendDirectMessageWithLinkButton({
   text: string;
   buttons: meta.LinkButton[];
 }) {
+  await frenoEnvio(instagramAccountId, { userId });
   if (context.provider === "META")
     return meta.sendDirectMessageWithLinkButton(
       context.accessToken,

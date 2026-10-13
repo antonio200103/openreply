@@ -240,7 +240,10 @@ async function sweepCampaign({
         automationId: automation.id,
         commentId: { in: needsAction.map((c) => c.id) },
         AND: [
-          { OR: [{ status: "SENT" }, { dmDeliveryUnconfirmed: true }] },
+          // dmSentAt: the DM went out at least once — never re-send it from the sweep
+          // (Meta code 1 "unknown error" on a delivered DM left logs FAILED and the
+          // sweep re-sent them every five minutes; 2026-10-12 incident).
+          { OR: [{ status: "SENT" }, { dmDeliveryUnconfirmed: true }, { dmSentAt: { not: null } }] },
           ...(automation.publicReplyEnabled ? [{ OR: [{ publicReplySentAt: { not: null } }, { publicReplyDeliveryUnconfirmed: true }] }] : []),
         ],
       },

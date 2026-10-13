@@ -286,7 +286,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     const alreadyDmd = existingLog?.status === "SENT";
     const alreadyPublicReplied = Boolean(existingLog?.publicReplySentAt);
-    const needsDm = !alreadyDmd && !existingLog?.dmDeliveryUnconfirmed;
+    // A DM that ever went out (dmSentAt set) is never re-sent automatically, even if a
+    // later step marked the log FAILED: Meta sometimes answers "An unknown error has
+    // occurred" (code 1) for a message it did deliver, and re-sending on every sweep
+    // floods the person with the same DM every five minutes (2026-10-12 incident).
+    const needsDm = !alreadyDmd && !existingLog?.dmDeliveryUnconfirmed && !existingLog?.dmSentAt;
 
     // Skip only when there is genuinely nothing left to do. A comment whose DM
     // already sent but whose public reply never posted (e.g. it hit a rate
