@@ -229,6 +229,9 @@ model DmLog {
   commenterId   String
   commenterName String?
   commentText   String
+  // Qué dijo Instagram al comprobar el follow antes de entregar: "true", "false",
+  // "null" (no se pudo saber → fail open) o "sin_gate". Sin esto no se puede medir el gate.
+  followStatus  String?
   commentId     String
   matchedKeyword String?
   status        DmStatus @default(PENDING)

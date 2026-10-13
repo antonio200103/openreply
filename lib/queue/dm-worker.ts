@@ -879,11 +879,13 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   // be bypassable by just reading the DM and waiting. Following, or
   // unverifiable (null), falls through and delivers the link — fail-open so a
   // real follower is never trapped.
+  let followStatus: string = automation.requireFollow ? "sin_comprobar" : "sin_gate";
   if ((isFollowCheck || fallback) && automation.requireFollow) {
     const follows = await getUserFollowStatus({
       context: accessToken,
       recipientId: userId,
     });
+    followStatus = follows === true ? "true" : follows === false ? "false" : "null";
     if (follows === false) {
       if (fallback) return;
       const promptText = renderMessageWithoutLink({
@@ -999,8 +1001,9 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
         commentId: dedupeId,
         status: "SENT",
         dmSentAt: new Date(),
+        followStatus,
       },
-      update: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
+      update: { status: "SENT", dmSentAt: new Date(), errorMessage: null, followStatus },
     });
   } catch (error) {
     await releaseWorkspaceDMReservation(
